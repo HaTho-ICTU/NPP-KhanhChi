@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ghidon-v3';
+const CACHE_NAME = 'ghidon-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -28,6 +28,11 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
+  // Don't cache GitHub raw data (changes frequently)
+  if (e.request.url.includes('raw.githubusercontent.com')) {
+    e.respondWith(fetch(e.request));
+    return;
+  }
   e.respondWith(
     caches.match(e.request).then((cached) => cached || fetch(e.request))
   );

@@ -29,14 +29,26 @@ const Sync = (() => {
         </div>
       </div>
 
-      <!-- Import section -->
+      <!-- Fetch from GitHub -->
       <div class="card">
-        <div class="card-title">Nhập dữ liệu từ máy tính</div>
+        <div class="card-title">Tải dữ liệu từ máy tính</div>
         <p class="text-secondary mb-12" style="font-size:0.85rem;">
-          Chọn file JSON đã xuất từ phần mềm desktop (khách hàng, sản phẩm, giá).
+          Tải dữ liệu khách hàng, sản phẩm mới nhất đã được đẩy lên từ máy tính.
+        </p>
+        <button class="btn btn-primary btn-block" id="fetch-data-btn">
+          Tải dữ liệu mới nhất
+        </button>
+        <div id="fetch-status" class="mt-8" style="font-size:0.85rem;"></div>
+      </div>
+
+      <!-- Import from file (offline) -->
+      <div class="card">
+        <div class="card-title">Nhập dữ liệu từ file</div>
+        <p class="text-secondary mb-12" style="font-size:0.85rem;">
+          Nhập thủ công từ file JSON (dùng khi không có mạng).
         </p>
         <input type="file" id="import-file" accept=".json" class="hidden">
-        <button class="btn btn-primary btn-block" id="import-btn">
+        <button class="btn btn-outline btn-block" id="import-btn">
           Chọn file để nhập
         </button>
         <div id="import-status" class="mt-8" style="font-size:0.85rem;"></div>
@@ -71,6 +83,7 @@ const Sync = (() => {
       </div>
     `;
 
+    setupFetch();
     setupImport();
     setupExport();
     setupClear();
@@ -78,6 +91,51 @@ const Sync = (() => {
 
   function todayStr() {
     return new Date().toISOString().slice(0, 10);
+  }
+
+  // === Fetch from GitHub ===
+  function setupFetch() {
+    document.getElementById('fetch-data-btn').onclick = async () => {
+      const status = document.getElementById('fetch-status');
+      status.textContent = 'Đang tải...';
+      try {
+        const url = 'https://raw.githubusercontent.com/HaTho-ICTU/ghidon-webapp/main/data/webapp_data.json';
+        const res = await fetch(url + '?t=' + Date.now());
+        if (!res.ok) throw new Error('Không tải được file. Kiểm tra kết nối mạng.');
+        const data = await res.json();
+
+        // Import regions
+        if (data.regions && data.regions.length) {
+          await DB.regions.clear();
+          await DB.regions.importAll(data.regions);
+        }
+
+        // Import customers
+        if (data.customers && data.customers.length) {
+          await DB.customers.importAll(data.customers);
+        }
+
+        // Import products + prices
+        if (data.products) {
+          await DB.products.importAll(
+            data.products || [],
+            data.product_prices || []
+          );
+        }
+
+        const cCount = data.customers ? data.customers.length : 0;
+        const pCount = data.products ? data.products.length : 0;
+
+        status.innerHTML = '<span style="color:var(--green);">Thành công! Đã nhập ' + cCount + ' khách hàng, ' + pCount + ' sản phẩm.</span>';
+        UI.toast('Tải dữ liệu thành công');
+
+        // Update stat boxes
+        setTimeout(() => Sync.render(document.getElementById('app-content')), 1500);
+      } catch (err) {
+        status.innerHTML = '<span style="color:var(--red);">Lỗi: ' + err.message + '</span>';
+        UI.toast('Lỗi khi tải dữ liệu');
+      }
+    };
   }
 
   // === Import master data ===
