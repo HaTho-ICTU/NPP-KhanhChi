@@ -53,6 +53,19 @@ const App = (() => {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
 
+    // Start cloud auto-sync (retry pending orders)
+    if (typeof Cloud !== 'undefined' && Cloud.isConfigured()) {
+      Cloud.startAutoSync();
+
+      // Auto-download master data if IndexedDB is empty
+      const customerCount = await DB.customers.count();
+      if (customerCount === 0 && navigator.onLine) {
+        Cloud.downloadMasterData().then(() => {
+          UI.toast('Đã tải dữ liệu từ cloud');
+        }).catch(() => {});
+      }
+    }
+
     // Start on invoice page
     navigate('invoice');
   }

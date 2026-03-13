@@ -8,6 +8,9 @@ const Sync = (() => {
     const customerCount = await DB.customers.count();
     const productCount = await DB.products.count();
     const orderCount = await DB.invoices.count();
+    const pendingCount = (typeof Cloud !== 'undefined') ? await Cloud.getPendingCount() : 0;
+    const isOnline = navigator.onLine;
+    const cloudReady = (typeof Cloud !== 'undefined') && Cloud.isConfigured();
 
     container.innerHTML = `
       <!-- Current data stats -->
@@ -29,22 +32,43 @@ const Sync = (() => {
         </div>
       </div>
 
-      <!-- Import section -->
+      <!-- Cloud sync section -->
       <div class="card">
-        <div class="card-title">Nhập dữ liệu từ máy tính</div>
+        <div class="card-title">Đồng bộ Cloud</div>
+        <div class="flex-between mb-12">
+          <span class="text-secondary" style="font-size:0.85rem;">
+            Trạng thái: <span style="color:${isOnline ? 'var(--green)' : 'var(--red)'};">${isOnline ? 'Online' : 'Offline'}</span>
+            ${pendingCount > 0 ? ` · <span style="color:var(--amber);">${pendingCount} đơn chờ gửi</span>` : ''}
+          </span>
+        </div>
+        <button class="btn btn-primary btn-block mb-8" id="cloud-download-btn" ${!cloudReady ? 'disabled' : ''}>
+          Tải dữ liệu từ cloud
+        </button>
+        ${pendingCount > 0 ? `
+          <button class="btn btn-success btn-block mb-8" id="cloud-retry-btn">
+            Gửi ${pendingCount} đơn chờ lên cloud
+          </button>
+        ` : ''}
+        <div id="cloud-status" class="mt-8" style="font-size:0.85rem;"></div>
+        ${!cloudReady ? '<p class="text-secondary" style="font-size:0.8rem;">Cloud chưa được cấu hình.</p>' : ''}
+      </div>
+
+      <!-- Import section (file backup) -->
+      <div class="card">
+        <div class="card-title">Nhập dữ liệu từ file (backup)</div>
         <p class="text-secondary mb-12" style="font-size:0.85rem;">
           Chọn file JSON đã xuất từ phần mềm desktop (khách hàng, sản phẩm, giá).
         </p>
         <input type="file" id="import-file" accept=".json" class="hidden">
-        <button class="btn btn-primary btn-block" id="import-btn">
+        <button class="btn btn-outline btn-block" id="import-btn">
           Chọn file để nhập
         </button>
         <div id="import-status" class="mt-8" style="font-size:0.85rem;"></div>
       </div>
 
-      <!-- Export section -->
+      <!-- Export section (file backup) -->
       <div class="card">
-        <div class="card-title">Xuất đơn hàng về máy tính</div>
+        <div class="card-title">Xuất đơn hàng qua file (backup)</div>
         <p class="text-secondary mb-12" style="font-size:0.85rem;">
           Xuất tất cả đơn hàng thành file JSON để nhập vào phần mềm desktop.
         </p>
@@ -71,6 +95,7 @@ const Sync = (() => {
       </div>
     `;
 
+    setupCloud();
     setupImport();
     setupExport();
     setupClear();
@@ -78,6 +103,46 @@ const Sync = (() => {
 
   function todayStr() {
     return new Date().toISOString().slice(0, 10);
+  }
+
+  // === Cloud sync ===
+  function setupCloud() {
+    const downloadBtn = document.getElementById('cloud-download-btn');
+    const retryBtn = document.getElementById('cloud-retry-btn');
+    const status = document.getElementById('cloud-status');
+
+    if (downloadBtn) {
+      downloadBtn.onclick = async () => {
+        if (typeof Cloud === 'undefined' || !Cloud.isConfigured()) {
+          UI.toast('Cloud chưa cấu hình');
+          return;
+        }
+        try {
+          status.innerHTML = '<span style="color:var(--blue);">Đang tải...</span>';
+          const result = await Cloud.downloadMasterData();
+          status.innerHTML = `<span style="color:var(--green);">Thành công! ${result.customers} khách hàng, ${result.products} sản phẩm.</span>`;
+          UI.toast('Đã tải dữ liệu từ cloud');
+          setTimeout(() => Sync.render(document.getElementById('app-content')), 1500);
+        } catch (err) {
+          status.innerHTML = `<span style="color:var(--red);">Lỗi: ${err.message}</span>`;
+          UI.toast('Lỗi tải dữ liệu');
+        }
+      };
+    }
+
+    if (retryBtn) {
+      retryBtn.onclick = async () => {
+        try {
+          status.innerHTML = '<span style="color:var(--blue);">Đang gửi...</span>';
+          const count = await Cloud.syncPending();
+          status.innerHTML = `<span style="color:var(--green);">Đã gửi ${count} đơn lên cloud.</span>`;
+          UI.toast(`Đã gửi ${count} đơn`);
+          setTimeout(() => Sync.render(document.getElementById('app-content')), 1500);
+        } catch (err) {
+          status.innerHTML = `<span style="color:var(--red);">Lỗi: ${err.message}</span>`;
+        }
+      };
+    }
   }
 
   // === Import master data ===

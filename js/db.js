@@ -4,7 +4,7 @@
  */
 const DB = (() => {
   const DB_NAME = 'ghidon_db';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   let db = null;
 
   function open() {
@@ -43,6 +43,18 @@ const DB = (() => {
           const inv = d.createObjectStore('invoices', { keyPath: 'temp_id' });
           inv.createIndex('created_date', 'created_date', { unique: false });
           inv.createIndex('customer_id', 'customer_id', { unique: false });
+          inv.createIndex('cloud_status', 'cloud_status', { unique: false });
+        }
+
+        // v2 migration: add cloud_status index to existing invoices store
+        if (e.oldVersion < 2) {
+          const invTx = e.target.transaction;
+          if (d.objectStoreNames.contains('invoices')) {
+            const invStore = invTx.objectStore('invoices');
+            if (!invStore.indexNames.contains('cloud_status')) {
+              invStore.createIndex('cloud_status', 'cloud_status', { unique: false });
+            }
+          }
         }
       };
       req.onsuccess = (e) => { db = e.target.result; resolve(db); };
@@ -195,6 +207,10 @@ const DB = (() => {
     clear: () => clear('invoices'),
     count: async () => (await getAll('invoices')).length,
     generateTempId: () => 'web_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    getPending: async () => {
+      const all = await getAll('invoices');
+      return all.filter((inv) => inv.cloud_status === 'pending' || !inv.cloud_status);
+    },
   };
 
   return { open, regions, customers, products, invoices };

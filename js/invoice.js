@@ -479,6 +479,14 @@ const Invoice = (() => {
 
       await DB.invoices.save(invoice);
       UI.toast(editingInvoice ? 'Đã cập nhật đơn' : 'Đã lưu đơn hàng');
+
+      // Auto-upload to cloud (fire-and-forget, không block UX)
+      if (typeof Cloud !== 'undefined' && Cloud.isConfigured()) {
+        Cloud.uploadOrder(invoice).then((ok) => {
+          if (ok) UI.toast('Đã gửi lên cloud');
+        }).catch(() => {});
+      }
+
       reset();
       // Navigate to orders page to see the saved invoice
       if (typeof App !== 'undefined') App.navigate('orders');
