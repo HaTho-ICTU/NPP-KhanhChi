@@ -1,0 +1,38 @@
+# === Chỉ push webapp + workflow, bỏ hết phần còn lại ===
+
+# Webapp config (chứa API key - GitHub Actions tạo từ Secrets)
+webapp/js/config.js
+webapp/webapp_data.json
+
+# Desktop app (Python/Tkinter) - không push
+*.py
+*.pyc
+*.pyo
+__pycache__/
+config.py
+*.db
+build/
+dist/
+*.spec
+nul
+build.bat
+models/
+views/
+utils/
+/image/
+/image.png
+/sam.png
+invoices/
+
+# Project notes
+tasks/
+FIX.txt
+PROJECT.md
+CLAUDE.md
+update_webapp.md
+install-donhang-skills.bat
+supabase_setup.sql
+
+# IDE / System
+.vscode/
+.claude/

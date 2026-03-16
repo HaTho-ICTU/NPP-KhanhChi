@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#3b82f6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Ghi đơn - NPP Khánh Chi</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/svg+xml" href="./image/icon-192.svg">
+  <link rel="apple-touch-icon" href="./image/icon-192.svg">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <!-- Header -->
+  <header id="app-header">
+    <h1 id="header-title">Ghi đơn</h1>
+  </header>
+
+  <!-- Main content area -->
+  <main id="app-content"></main>
+
+  <!-- Bottom navigation -->
+  <nav id="bottom-nav">
+    <button class="nav-btn active" data-page="invoice">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 5v14M5 12h14"/>
+      </svg>
+      <span>Ghi đơn</span>
+    </button>
+    <button class="nav-btn" data-page="orders">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
+        <rect x="9" y="3" width="6" height="4" rx="1"/>
+        <path d="M9 12h6M9 16h6"/>
+      </svg>
+      <span>Đơn hàng</span>
+    </button>
+    <button class="nav-btn" data-page="sync">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M4 4v5h5M20 20v-5h-5"/>
+        <path d="M20.49 9A9 9 0 005.64 5.64L4 4M3.51 15A9 9 0 0018.36 18.36L20 20"/>
+      </svg>
+      <span>Đồng bộ</span>
+    </button>
+  </nav>
+
+  <!-- Modal overlay -->
+  <div id="modal-overlay" class="hidden">
+    <div id="modal-content"></div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="hidden"></div>
+
+  <script src="./js/config.js"></script>
+  <script src="./js/db.js"></script>
+  <script src="./js/ui.js"></script>
+  <script src="./js/cloud.js"></script>
+  <script src="./js/invoice.js"></script>
+  <script src="./js/sync.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>
