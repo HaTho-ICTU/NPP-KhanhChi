@@ -411,16 +411,56 @@ const Invoice = (() => {
           <div class="item-detail">${item.quantity} x ${priceDisplay}</div>
         </div>
         <div class="item-subtotal" ${isOther && item.price < 0 ? 'style="color:var(--red)"' : ''}>${subtotalDisplay}</div>
-        <button class="item-delete" data-index="${i}">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6L6 18M6 6l12 12"/>
-          </svg>
-        </button>
+        <div class="item-actions">
+          <button class="item-edit" data-index="${i}">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </button>
+          <button class="item-delete" data-index="${i}">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
       </div>`;
     }).join('');
 
     const total = items.reduce((s, it) => s + it.subtotal, 0);
     totalEl.textContent = UI.formatCurrency(total);
+
+    // Edit handlers
+    listEl.querySelectorAll('.item-edit').forEach((btn) => {
+      btn.onclick = () => {
+        const idx = parseInt(btn.dataset.index);
+        const item = items[idx];
+        UI.showModal(`
+          <div class="modal-title">Sửa: ${item.product_name}</div>
+          <div class="form-group">
+            <label class="form-label">Số lượng</label>
+            <input type="number" class="form-input" id="edit-qty" value="${item.quantity}" min="1" inputmode="numeric">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Giá</label>
+            <input type="number" class="form-input" id="edit-price" value="${item.price}" inputmode="numeric">
+          </div>
+          <button class="btn btn-success btn-block mt-8" id="edit-confirm">Cập nhật</button>
+        `);
+        document.getElementById('edit-qty').focus();
+        document.getElementById('edit-confirm').onclick = () => {
+          const newQty = parseInt(document.getElementById('edit-qty').value) || 1;
+          const newPrice = parseFloat(document.getElementById('edit-price').value) || 0;
+          if (newQty <= 0) { UI.toast('Số lượng không hợp lệ'); return; }
+          item.quantity = newQty;
+          item.price = newPrice;
+          item.subtotal = newPrice * newQty;
+          renderItems();
+          UI.closeModal();
+          UI.toast('Đã cập nhật');
+        };
+      };
+    });
 
     // Delete handlers
     listEl.querySelectorAll('.item-delete').forEach((btn) => {
