@@ -7,6 +7,7 @@ const App = (() => {
   const PAGE_TITLES = {
     invoice: 'Ghi đơn',
     orders: 'Đơn hàng',
+    history: 'Lịch sử',
     sync: 'Đồng bộ'
   };
 
@@ -32,6 +33,9 @@ const App = (() => {
         break;
       case 'orders':
         Sync.renderOrders(content);
+        break;
+      case 'history':
+        History.render(content);
         break;
       case 'sync':
         Sync.render(content);

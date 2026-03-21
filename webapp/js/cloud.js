@@ -169,5 +169,42 @@ const Cloud = (() => {
     return pending.length;
   }
 
-  return { downloadMasterData, uploadOrder, syncPending, startAutoSync, isConfigured, getPendingCount };
+  // === Download invoice history from cloud ===
+  async function downloadHistory(startDate, endDate) {
+    if (!isConfigured()) throw new Error('Cloud chưa được cấu hình');
+    if (!navigator.onLine) throw new Error('Cần kết nối internet để xem lịch sử');
+
+    let path = 'cloud_orders?select=*&order=created_date.desc';
+    if (startDate) path += `&created_date=gte.${startDate}`;
+    if (endDate) path += `&created_date=lte.${endDate} 23:59:59`;
+    path += '&limit=200';
+
+    const orders = await request('GET', path) || [];
+
+    // Fetch details in batches of 50
+    const tempIds = orders.map(o => o.temp_id);
+    let allDetails = [];
+    for (let i = 0; i < tempIds.length; i += 50) {
+      const batch = tempIds.slice(i, i + 50);
+      const inList = batch.join(',');
+      const details = await request('GET',
+        `cloud_order_details?order_temp_id=in.(${inList})`
+      ) || [];
+      allDetails = allDetails.concat(details);
+    }
+
+    // Merge details into orders
+    const detailMap = {};
+    for (const d of allDetails) {
+      if (!detailMap[d.order_temp_id]) detailMap[d.order_temp_id] = [];
+      detailMap[d.order_temp_id].push(d);
+    }
+    for (const order of orders) {
+      order.details = detailMap[order.temp_id] || [];
+    }
+
+    return orders;
+  }
+
+  return { downloadMasterData, uploadOrder, syncPending, startAutoSync, isConfigured, getPendingCount, downloadHistory };
 })();

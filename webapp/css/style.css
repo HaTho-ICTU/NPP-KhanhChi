@@ -523,3 +523,29 @@ body {
 }
 
 .action-row .btn { flex: 1; }
+
+/* === History page === */
+.history-filter {
+  display: flex;
+  gap: 12px;
+}
+
+.source-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
+.source-desktop {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.source-webapp {
+  background: #dcfce7;
+  color: #15803d;
+}
