@@ -13,8 +13,11 @@ const History = (() => {
   }
 
   async function render(container) {
-    const today = new Date().toISOString().slice(0, 10);
-    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const wa = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+    const weekAgo = `${wa.getFullYear()}-${pad(wa.getMonth() + 1)}-${pad(wa.getDate())}`;
 
     container.innerHTML = `
       <div class="card">

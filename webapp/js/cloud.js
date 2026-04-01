@@ -176,7 +176,7 @@ const Cloud = (() => {
 
     let path = 'cloud_orders?select=*&order=created_date.desc';
     if (startDate) path += `&created_date=gte.${startDate}`;
-    if (endDate) path += `&created_date=lte.${endDate} 23:59:59`;
+    if (endDate) path += `&created_date=lte.${endDate}%2023:59:59`;
     path += '&limit=200';
 
     const orders = await request('GET', path) || [];
