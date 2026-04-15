@@ -171,6 +171,18 @@ const Cloud = (() => {
     return pending.length;
   }
 
+  // === Delete order on cloud (details cascade) ===
+  async function deleteOrder(tempId) {
+    if (!isConfigured() || !navigator.onLine) return false;
+    try {
+      await request('DELETE', `cloud_orders?temp_id=eq.${tempId}`);
+      return true;
+    } catch (err) {
+      console.warn('Cloud delete failed:', err.message);
+      return false;
+    }
+  }
+
   // === Download invoice history from cloud ===
   async function downloadHistory(startDate, endDate) {
     if (!isConfigured()) throw new Error('Cloud chưa được cấu hình');
@@ -208,5 +220,5 @@ const Cloud = (() => {
     return orders;
   }
 
-  return { downloadMasterData, uploadOrder, syncPending, startAutoSync, isConfigured, getPendingCount, downloadHistory };
+  return { downloadMasterData, uploadOrder, deleteOrder, syncPending, startAutoSync, isConfigured, getPendingCount, downloadHistory };
 })();

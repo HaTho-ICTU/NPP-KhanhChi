@@ -399,8 +399,13 @@ const Sync = (() => {
 
     document.getElementById('modal-delete-btn').onclick = () => {
       UI.confirm('Xoá đơn hàng này?', async () => {
+        // Xoá trên cloud trước (nếu online) để desktop không thấy đơn đã xoá
+        let cloudOk = true;
+        if (typeof Cloud !== 'undefined' && Cloud.isConfigured()) {
+          cloudOk = await Cloud.deleteOrder(tempId);
+        }
         await DB.invoices.delete(tempId);
-        UI.toast('Đã xoá đơn hàng');
+        UI.toast(cloudOk ? 'Đã xoá đơn hàng' : 'Đã xoá nhưng chưa đồng bộ cloud');
         App.navigate('orders');
       });
     };
