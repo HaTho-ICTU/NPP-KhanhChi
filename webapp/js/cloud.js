@@ -78,6 +78,7 @@ const Cloud = (() => {
 
     try {
       // Upload order header (upsert by temp_id to prevent duplicates on retry)
+      // synced_to_desktop=false để desktop pull lại khi user sửa đơn
       await requestWithHeaders('POST', 'cloud_orders', {
         temp_id: invoice.temp_id,
         customer_id: invoice.customer_id,
@@ -86,7 +87,8 @@ const Cloud = (() => {
         guest_address: invoice.guest_address,
         created_date: invoice.created_date,
         total: invoice.total,
-        note: invoice.note || ''
+        note: invoice.note || '',
+        synced_to_desktop: false
       }, { 'Prefer': 'return=representation,resolution=merge-duplicates' });
 
       // Upload order details (delete old + re-insert to avoid partial duplicates)
