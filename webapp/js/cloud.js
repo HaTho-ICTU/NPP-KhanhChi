@@ -77,9 +77,10 @@ const Cloud = (() => {
     }
 
     try {
-      // Upload order header (upsert by temp_id to prevent duplicates on retry)
+      // Upload order header (upsert by temp_id - on_conflict bắt buộc để PostgREST
+      // dùng UNIQUE temp_id làm conflict target, không thì sẽ INSERT mới và 409).
       // synced_to_desktop=false để desktop pull lại khi user sửa đơn
-      await requestWithHeaders('POST', 'cloud_orders', {
+      await requestWithHeaders('POST', 'cloud_orders?on_conflict=temp_id', {
         temp_id: invoice.temp_id,
         customer_id: invoice.customer_id,
         customer_name: invoice.customer_name,
@@ -116,13 +117,9 @@ const Cloud = (() => {
       return true;
 
     } catch (err) {
-      // If conflict (duplicate temp_id) → already uploaded
-      if (err.message && err.message.includes('409')) {
-        invoice.cloud_status = 'synced';
-        await DB.invoices.save(invoice);
-        return true;
-      }
-      // Otherwise mark pending for retry
+      // Mark pending for retry. KHÔNG bắt 409 thành "synced" vì upsert đúng
+      // (on_conflict=temp_id) sẽ trả 200/201 - 409 ở đây nghĩa là upload thật sự fail
+      // và mark synced sẽ làm mất bản sửa.
       invoice.cloud_status = 'pending';
       await DB.invoices.save(invoice);
       console.warn('Cloud upload failed:', err.message);
