@@ -1,31 +1,35 @@
 /**
- * Supabase REST client for cloud sync.
- * Auto-upload orders, download master data, offline fallback.
+ * Supabase REST client (cloud-only, schema chuẩn hoá).
+ * Đọc master data + ghi đơn thẳng vào bảng invoices/invoice_details.
+ * Xác thực bằng user JWT (Auth). Có đệm offline: đơn lưu tạm, tự gửi khi có mạng.
  */
 const Cloud = (() => {
-  // Config được load từ config.js (window.CLOUD_CONFIG)
-  // File config.js không push lên GitHub, GitHub Actions tạo từ Secrets
   const CONFIG = window.CLOUD_CONFIG || { url: '', anonKey: '' };
 
-  function headers() {
+  async function authHeaders(extra) {
+    const token = await Auth.getAccessToken();
     return {
       'apikey': CONFIG.anonKey,
-      'Authorization': `Bearer ${CONFIG.anonKey}`,
+      'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
       'Prefer': 'return=representation',
+      ...(extra || {}),
     };
-  }
-
-  async function request(method, path, body) {
-    return requestWithHeaders(method, path, body);
   }
 
   async function requestWithHeaders(method, path, body, extraHeaders) {
     const url = `${CONFIG.url}/rest/v1/${path}`;
-    const hdrs = { ...headers(), ...extraHeaders };
-    const opts = { method, headers: hdrs };
-    if (body) opts.body = JSON.stringify(body);
-    const resp = await fetch(url, opts);
+    const doFetch = async () => {
+      const opts = { method, headers: await authHeaders(extraHeaders) };
+      if (body) opts.body = JSON.stringify(body);
+      return fetch(url, opts);
+    };
+    let resp = await doFetch();
+    if (resp.status === 401) {
+      // access token có thể vừa hết hạn → refresh rồi thử lại 1 lần
+      await Auth.refresh();
+      resp = await doFetch();
+    }
     if (!resp.ok) {
       const text = await resp.text();
       throw new Error(`Supabase ${resp.status}: ${text}`);
@@ -34,92 +38,75 @@ const Cloud = (() => {
     return text ? JSON.parse(text) : null;
   }
 
-  // === Download master data from cloud ===
-  async function downloadMasterData() {
-    const rows = await request('GET', 'cloud_master_data?id=eq.1&select=data_json,updated_at');
-    if (!rows || rows.length === 0) {
-      throw new Error('Chưa có dữ liệu trên cloud. Hãy đẩy từ desktop trước.');
-    }
-
-    const dataJson = rows[0].data_json;
-    if (!dataJson || dataJson === '{}') {
-      throw new Error('Dữ liệu cloud rỗng. Hãy đẩy master data từ desktop.');
-    }
-
-    const data = JSON.parse(dataJson);
-
-    // Import vào IndexedDB
-    if (data.regions && data.regions.length) {
-      await DB.regions.clear();
-      await DB.regions.importAll(data.regions);
-    }
-    if (data.customers && data.customers.length) {
-      await DB.customers.importAll(data.customers);
-    }
-    if (data.products) {
-      await DB.products.importAll(data.products || [], data.product_prices || []);
-    }
-
-    return {
-      customers: data.customers ? data.customers.length : 0,
-      products: data.products ? data.products.length : 0,
-      updated_at: rows[0].updated_at || data.exported_at
-    };
+  function request(method, path, body) {
+    return requestWithHeaders(method, path, body);
   }
 
-  // === Upload a single order to cloud ===
+  function nextDay(dateStr) {
+    const d = new Date(`${dateStr}T00:00:00`);
+    d.setDate(d.getDate() + 1);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  // === Tải master data từ cloud (các bảng chuẩn hoá) ===
+  async function downloadMasterData() {
+    const regions = await request('GET', 'regions?select=*&order=name') || [];
+    const customers = await request('GET', 'customers?select=*&order=name') || [];
+    const products = await request('GET', 'products?select=*&order=name') || [];
+    const prices = await request('GET', 'product_prices?select=*') || [];
+
+    await DB.regions.clear();
+    if (regions.length) await DB.regions.importAll(regions);
+    await DB.customers.importAll(customers);
+    await DB.products.importAll(products, prices);
+
+    return { customers: customers.length, products: products.length };
+  }
+
+  // === Gửi 1 đơn lên cloud (upsert theo client_uuid) ===
   async function uploadOrder(invoice) {
     if (!navigator.onLine) {
-      // Mark as pending — will retry when online
       invoice.cloud_status = 'pending';
       await DB.invoices.save(invoice);
       return false;
     }
 
     try {
-      // Upload order header (upsert by temp_id - on_conflict bắt buộc để PostgREST
-      // dùng UNIQUE temp_id làm conflict target, không thì sẽ INSERT mới và 409).
-      // synced_to_desktop=false để desktop pull lại khi user sửa đơn
-      await requestWithHeaders('POST', 'cloud_orders?on_conflict=temp_id', {
-        temp_id: invoice.temp_id,
+      // Upsert header, lấy lại id để ghi chi tiết
+      const rows = await requestWithHeaders('POST', 'invoices?on_conflict=client_uuid', {
+        client_uuid: invoice.temp_id,
         customer_id: invoice.customer_id,
-        customer_name: invoice.customer_name,
         guest_name: invoice.guest_name,
         guest_address: invoice.guest_address,
         created_date: invoice.created_date,
         total: invoice.total,
         note: invoice.note || '',
-        synced_to_desktop: false
+        source: 'webapp',
       }, { 'Prefer': 'return=representation,resolution=merge-duplicates' });
 
-      // Upload order details (delete old + re-insert to avoid partial duplicates)
-      if (invoice.details && invoice.details.length > 0) {
-        // Xoá details cũ nếu có (retry case)
-        await request('DELETE', `cloud_order_details?order_temp_id=eq.${invoice.temp_id}`);
+      const invoiceId = rows && rows[0] && rows[0].id;
+      if (!invoiceId) throw new Error('Không lấy được id hóa đơn');
 
+      // Ghi lại chi tiết: xoá cũ + chèn mới (tránh trùng khi gửi lại)
+      await request('DELETE', `invoice_details?invoice_id=eq.${invoiceId}`);
+      if (invoice.details && invoice.details.length > 0) {
         const details = invoice.details.map((d) => ({
-          order_temp_id: invoice.temp_id,
+          invoice_id: invoiceId,
           product_id: d.product_id,
-          product_name: d.product_name || '',
           quantity: d.quantity,
           price: d.price,
           subtotal: d.subtotal,
           item_type: d.item_type || 'product',
           note: d.note || '',
-          unit: d.unit || ''
         }));
-        await request('POST', 'cloud_order_details', details);
+        await request('POST', 'invoice_details', details);
       }
 
-      // Mark as synced in IndexedDB
       invoice.cloud_status = 'synced';
       await DB.invoices.save(invoice);
       return true;
-
     } catch (err) {
-      // Mark pending for retry. KHÔNG bắt 409 thành "synced" vì upsert đúng
-      // (on_conflict=temp_id) sẽ trả 200/201 - 409 ở đây nghĩa là upload thật sự fail
-      // và mark synced sẽ làm mất bản sửa.
       invoice.cloud_status = 'pending';
       await DB.invoices.save(invoice);
       console.warn('Cloud upload failed:', err.message);
@@ -127,11 +114,10 @@ const Cloud = (() => {
     }
   }
 
-  // === Sync all pending orders ===
+  // === Gửi tất cả đơn còn chờ ===
   async function syncPending() {
     const pending = await DB.invoices.getPending();
     if (pending.length === 0) return 0;
-
     let synced = 0;
     for (const inv of pending) {
       const ok = await uploadOrder(inv);
@@ -140,16 +126,12 @@ const Cloud = (() => {
     return synced;
   }
 
-  // === Auto-sync: retry pending when coming online ===
+  // === Tự gửi lại đơn chờ khi có mạng ===
   function startAutoSync() {
     window.addEventListener('online', async () => {
       const count = await syncPending();
-      if (count > 0) {
-        UI.toast(`Đã đồng bộ ${count} đơn lên cloud`);
-      }
+      if (count > 0) UI.toast(`Đã đồng bộ ${count} đơn lên cloud`);
     });
-
-    // Also try syncing immediately if online
     if (navigator.onLine) {
       syncPending().then((count) => {
         if (count > 0) UI.toast(`Đã đồng bộ ${count} đơn lên cloud`);
@@ -157,22 +139,20 @@ const Cloud = (() => {
     }
   }
 
-  // === Check if cloud is configured ===
   function isConfigured() {
     return CONFIG.url && CONFIG.anonKey && !CONFIG.anonKey.includes('PLACEHOLDER');
   }
 
-  // === Get pending order count ===
   async function getPendingCount() {
     const pending = await DB.invoices.getPending();
     return pending.length;
   }
 
-  // === Delete order on cloud (details cascade) ===
-  async function deleteOrder(tempId) {
+  // === Xoá đơn trên cloud (chi tiết cascade) ===
+  async function deleteOrder(clientUuid) {
     if (!isConfigured() || !navigator.onLine) return false;
     try {
-      await request('DELETE', `cloud_orders?temp_id=eq.${tempId}`);
+      await request('DELETE', `invoices?client_uuid=eq.${clientUuid}`);
       return true;
     } catch (err) {
       console.warn('Cloud delete failed:', err.message);
@@ -180,42 +160,52 @@ const Cloud = (() => {
     }
   }
 
-  // === Download invoice history from cloud ===
+  // === Tải lịch sử đơn từ cloud (1 query, nhúng khách + chi tiết + sản phẩm) ===
   async function downloadHistory(startDate, endDate) {
     if (!isConfigured()) throw new Error('Cloud chưa được cấu hình');
     if (!navigator.onLine) throw new Error('Cần kết nối internet để xem lịch sử');
 
-    let path = 'cloud_orders?select=*&order=created_date.desc';
+    let path = 'invoices?select=id,client_uuid,customer_id,guest_name,guest_address,'
+      + 'created_date,total,note,source,customers(name),'
+      + 'invoice_details(product_id,quantity,price,subtotal,item_type,note,products(name,unit))'
+      + '&order=created_date.desc';
     if (startDate) path += `&created_date=gte.${startDate}`;
-    if (endDate) path += `&created_date=lte.${endDate}%2023:59:59`;
-    path += '&limit=200';
+    if (endDate) path += `&created_date=lt.${nextDay(endDate)}`;
+    path += '&limit=300';
 
-    const orders = await request('GET', path) || [];
-
-    // Fetch details in batches of 50
-    const tempIds = orders.map(o => o.temp_id);
-    let allDetails = [];
-    for (let i = 0; i < tempIds.length; i += 50) {
-      const batch = tempIds.slice(i, i + 50);
-      const inList = batch.join(',');
-      const details = await request('GET',
-        `cloud_order_details?order_temp_id=in.(${inList})`
-      ) || [];
-      allDetails = allDetails.concat(details);
-    }
-
-    // Merge details into orders
-    const detailMap = {};
-    for (const d of allDetails) {
-      if (!detailMap[d.order_temp_id]) detailMap[d.order_temp_id] = [];
-      detailMap[d.order_temp_id].push(d);
-    }
-    for (const order of orders) {
-      order.details = detailMap[order.temp_id] || [];
-    }
-
-    return orders;
+    const rows = await request('GET', path) || [];
+    return rows.map(shapeHistoryOrder);
   }
 
-  return { downloadMasterData, uploadOrder, deleteOrder, syncPending, startAutoSync, isConfigured, getPendingCount, downloadHistory };
+  function shapeHistoryOrder(o) {
+    const custName = (o.customers && o.customers.name) || o.guest_name || 'Khách lạ';
+    const details = (o.invoice_details || []).map((d) => {
+      let pname = (d.products && d.products.name) || '';
+      if (d.item_type === 'other' && d.note) {
+        pname = d.note.startsWith('Khuyến mãi')
+          ? `[Khuyến mãi] ${d.note.slice('Khuyến mãi'.length).trim()}`
+          : `[Khác] ${d.note}`;
+      }
+      return {
+        product_id: d.product_id, product_name: pname, quantity: d.quantity,
+        price: d.price, subtotal: d.subtotal, item_type: d.item_type, note: d.note,
+      };
+    });
+    return {
+      temp_id: o.client_uuid,   // history.js dùng temp_id làm khóa
+      customer_id: o.customer_id,
+      customer_name: custName,
+      guest_name: o.guest_name,
+      created_date: o.created_date,
+      total: o.total,
+      note: o.note,
+      source: o.source || 'webapp',
+      details,
+    };
+  }
+
+  return {
+    downloadMasterData, uploadOrder, deleteOrder, syncPending, startAutoSync,
+    isConfigured, getPendingCount, downloadHistory,
+  };
 })();

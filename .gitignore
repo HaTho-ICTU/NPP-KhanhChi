@@ -32,6 +32,8 @@ CLAUDE.md
 update_webapp.md
 install-donhang-skills.bat
 supabase_setup.sql
+supabase_schema_v2.sql
+.session.json
 
 # IDE / System
 .vscode/
