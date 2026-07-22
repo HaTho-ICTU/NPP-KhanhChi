@@ -5,6 +5,25 @@
 const History = (() => {
   let currentOrders = [];
 
+  // Bỏ dấu tiếng Việt + thường hoá để tra cứu không cần gõ dấu
+  // ("quang" khớp "Xuân Quang", "bot ot" khớp "Bột ớt").
+  function normalize(s) {
+    return (s || '')
+      .toString()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/đ/g, 'd');
+  }
+
+  function orderMatches(order, kw) {
+    const name = normalize(order.customer_name || order.guest_name || '');
+    if (name.includes(kw)) return true;
+    if (normalize(order.note || '').includes(kw)) return true;
+    if (order.details && order.details.some(d => normalize(d.product_name || '').includes(kw))) return true;
+    return false;
+  }
+
   function formatDateHeader(dateStr) {
     const d = new Date(dateStr);
     const days = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
@@ -37,10 +56,16 @@ const History = (() => {
         </button>
         <div id="history-status" style="font-size:0.85rem;margin-top:8px;"></div>
       </div>
+      <div class="card" id="history-search-card" style="display:none;">
+        <input type="text" class="form-input" id="history-search"
+               placeholder="🔍 Tra cứu: tên khách, sản phẩm, ghi chú…"
+               autocomplete="off" inputmode="search">
+      </div>
       <div id="history-list"></div>
     `;
 
     document.getElementById('history-load-btn').onclick = loadHistory;
+    document.getElementById('history-search').oninput = applySearch;
 
     // Auto-load if online
     if (navigator.onLine && typeof Cloud !== 'undefined' && Cloud.isConfigured()) {
@@ -56,6 +81,8 @@ const History = (() => {
     const endDate = document.getElementById('history-end').value;
     const status = document.getElementById('history-status');
     const listEl = document.getElementById('history-list');
+    const searchCard = document.getElementById('history-search-card');
+    const searchInput = document.getElementById('history-search');
 
     if (!startDate || !endDate) {
       UI.toast('Chọn ngày trước');
@@ -65,6 +92,8 @@ const History = (() => {
     try {
       status.innerHTML = '<span style="color:var(--blue);">Đang tải...</span>';
       listEl.innerHTML = '';
+      searchInput.value = '';           // tải mới thì xoá từ khoá cũ
+      searchCard.style.display = 'none';
 
       currentOrders = await Cloud.downloadHistory(startDate, endDate);
 
@@ -74,6 +103,7 @@ const History = (() => {
         return;
       }
 
+      searchCard.style.display = '';    // có đơn thì mở ô tra cứu
       const grandTotal = currentOrders.reduce((s, o) => s + (o.total || 0), 0);
       status.innerHTML = `<span style="color:var(--green);">${currentOrders.length} đơn hàng · ${UI.formatCurrency(grandTotal)}</span>`;
       renderOrderList(currentOrders, listEl);
@@ -81,6 +111,31 @@ const History = (() => {
     } catch (err) {
       status.innerHTML = `<span style="color:var(--red);">Lỗi: ${err.message}</span>`;
     }
+  }
+
+  // Lọc tại chỗ trên các đơn đã tải (tức thời, không cần mạng).
+  function applySearch() {
+    const status = document.getElementById('history-status');
+    const listEl = document.getElementById('history-list');
+    const kw = normalize(document.getElementById('history-search').value.trim());
+
+    if (!kw) {
+      const grandTotal = currentOrders.reduce((s, o) => s + (o.total || 0), 0);
+      status.innerHTML = `<span style="color:var(--green);">${currentOrders.length} đơn hàng · ${UI.formatCurrency(grandTotal)}</span>`;
+      renderOrderList(currentOrders, listEl);
+      return;
+    }
+
+    const filtered = currentOrders.filter(o => orderMatches(o, kw));
+    if (filtered.length === 0) {
+      status.innerHTML = '<span style="color:var(--amber);">Không tìm thấy đơn khớp.</span>';
+      listEl.innerHTML = '<div class="empty-state"><p>Không có đơn khớp từ khoá</p></div>';
+      return;
+    }
+
+    const total = filtered.reduce((s, o) => s + (o.total || 0), 0);
+    status.innerHTML = `<span style="color:var(--green);">Tìm thấy ${filtered.length} đơn · ${UI.formatCurrency(total)}</span>`;
+    renderOrderList(filtered, listEl);
   }
 
   function renderOrderList(orders, container) {
