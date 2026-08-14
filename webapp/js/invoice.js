@@ -297,6 +297,59 @@ const Invoice = (() => {
     };
   }
 
+  // === Nhập tiền có dấu (Cộng/Trừ) ===
+  // Bàn phím số của điện thoại không có phím "-", nên dấu chọn bằng nút bấm.
+  function signToggleHTML(sign) {
+    return `<div class="sign-toggle">
+          <button type="button" class="sign-btn${sign >= 0 ? ' active' : ''}" data-sign="1">➕ Cộng tiền</button>
+          <button type="button" class="sign-btn${sign < 0 ? ' active' : ''}" data-sign="-1">➖ Trừ tiền</button>
+        </div>`;
+  }
+
+  /** Gắn nút Cộng/Trừ + dòng xem trước. Trả về hàm lấy giá đã có dấu. */
+  function bindSignedPrice(priceId, qtyId, previewId) {
+    const priceEl = document.getElementById(priceId);
+    const qtyEl = qtyId ? document.getElementById(qtyId) : null;
+    const previewEl = previewId ? document.getElementById(previewId) : null;
+    const btns = Array.from(document.querySelectorAll('.sign-btn'));
+    const active = btns.find((b) => b.classList.contains('active'));
+    let sign = active ? parseInt(active.dataset.sign) : 1;
+
+    // Chỉ giữ chữ số: "1.500" hay "1,500" đều ra 1500 (tiền VNĐ không có phần lẻ).
+    const amount = () => {
+      const digits = priceEl.value.replace(/[^\d]/g, '');
+      return digits ? parseInt(digits, 10) : 0;
+    };
+
+    function update() {
+      if (!previewEl) return;
+      const qty = qtyEl ? (parseInt(qtyEl.value) || 1) : 1;
+      const total = sign * amount() * qty;
+      previewEl.textContent = `Thành tiền: ${total > 0 ? '+' : ''}${UI.formatCurrency(total)} đ`;
+      previewEl.className = `sign-preview ${total < 0 ? 'minus' : 'plus'}`;
+    }
+
+    function setSign(next) {
+      sign = next;
+      btns.forEach((b) => b.classList.toggle('active', parseInt(b.dataset.sign) === sign));
+      update();
+    }
+
+    btns.forEach((b) => { b.onclick = () => setSign(parseInt(b.dataset.sign)); });
+
+    priceEl.addEventListener('input', () => {
+      // Ai gõ được dấu +/- (bàn phím máy tính) thì vẫn hiểu đúng.
+      const raw = priceEl.value.trim();
+      if (raw.startsWith('-')) { priceEl.value = raw.replace(/[-+]/g, ''); setSign(-1); return; }
+      if (raw.startsWith('+')) { priceEl.value = raw.replace(/[-+]/g, ''); setSign(1); return; }
+      update();
+    });
+    if (qtyEl) qtyEl.addEventListener('input', update);
+    update();
+
+    return () => sign * amount();
+  }
+
   // === Add "Khác" (other) item ===
   function setupOtherItem() {
     document.getElementById('add-other-btn').onclick = () => {
@@ -311,22 +364,21 @@ const Invoice = (() => {
           <input type="number" class="form-input" id="other-qty" value="1" min="1" inputmode="numeric">
         </div>
         <div class="form-group">
-          <label class="form-label">Giá (+/- hoặc số, VD: 50000, -30000)</label>
-          <input type="text" class="form-input" id="other-price" value="0" inputmode="numeric">
+          <label class="form-label">Giá</label>
+          ${signToggleHTML(1)}
+          <input type="text" class="form-input" id="other-price" placeholder="0" inputmode="numeric">
+          <div class="sign-preview plus" id="other-preview">Thành tiền: 0 đ</div>
         </div>
         <button class="btn btn-success btn-block mt-8" id="other-confirm">Thêm vào đơn</button>
       `);
       document.getElementById('other-note').focus();
+      const getPrice = bindSignedPrice('other-price', 'other-qty', 'other-preview');
       document.getElementById('other-confirm').onclick = () => {
         const note = document.getElementById('other-note').value.trim();
         if (!note) { UI.toast('Nhập ghi chú'); return; }
         const qty = parseInt(document.getElementById('other-qty').value) || 1;
         if (qty <= 0) { UI.toast('Số lượng không hợp lệ'); return; }
-        let priceStr = document.getElementById('other-price').value.trim().replace(/,/g, '');
-        let price = 0;
-        if (priceStr.startsWith('+')) price = parseFloat(priceStr.slice(1)) || 0;
-        else if (priceStr.startsWith('-')) price = -(parseFloat(priceStr.slice(1)) || 0);
-        else price = parseFloat(priceStr) || 0;
+        const price = getPrice();
 
         items.push({
           product_id: null,
@@ -435,6 +487,9 @@ const Invoice = (() => {
       btn.onclick = () => {
         const idx = parseInt(btn.dataset.index);
         const item = items[idx];
+        // Mục "Khác" có thể âm (trừ tiền) -> cần nút Cộng/Trừ; hàng thường thì không.
+        // Kèm `price < 0` để đơn cũ thiếu item_type vẫn không bị mất dấu âm khi sửa.
+        const isOther = item.item_type === 'other' || item.price < 0;
         UI.showModal(`
           <div class="modal-title">Sửa: ${item.product_name}</div>
           <div class="form-group">
@@ -443,14 +498,17 @@ const Invoice = (() => {
           </div>
           <div class="form-group">
             <label class="form-label">Giá</label>
-            <input type="number" class="form-input" id="edit-price" value="${item.price}" inputmode="numeric">
+            ${isOther ? signToggleHTML(item.price < 0 ? -1 : 1) : ''}
+            <input type="text" class="form-input" id="edit-price" value="${Math.abs(item.price)}" inputmode="numeric">
+            <div class="sign-preview ${item.price < 0 ? 'minus' : 'plus'}" id="edit-preview"></div>
           </div>
           <button class="btn btn-success btn-block mt-8" id="edit-confirm">Cập nhật</button>
         `);
         document.getElementById('edit-qty').focus();
+        const getEditPrice = bindSignedPrice('edit-price', 'edit-qty', 'edit-preview');
         document.getElementById('edit-confirm').onclick = () => {
           const newQty = parseInt(document.getElementById('edit-qty').value) || 1;
-          const newPrice = parseFloat(document.getElementById('edit-price').value) || 0;
+          const newPrice = getEditPrice();
           if (newQty <= 0) { UI.toast('Số lượng không hợp lệ'); return; }
           item.quantity = newQty;
           item.price = newPrice;

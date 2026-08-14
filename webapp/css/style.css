@@ -163,6 +163,36 @@ body {
 
 .form-input::placeholder { color: #94a3b8; }
 
+/* === Chọn Cộng/Trừ tiền ===
+   Bàn phím số trên điện thoại KHÔNG có phím "-", nên cho bấm nút thay vì gõ dấu. */
+.sign-toggle { display: flex; gap: 8px; margin-bottom: 8px; }
+
+.sign-toggle .sign-btn {
+  flex: 1;
+  padding: 12px 8px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.95rem; font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.sign-toggle .sign-btn:active { transform: scale(0.97); }
+.sign-btn.active[data-sign="1"] { background: var(--green); border-color: var(--green); color: #fff; }
+.sign-btn.active[data-sign="-1"] { background: var(--red); border-color: var(--red); color: #fff; }
+
+.sign-preview {
+  margin-top: 6px;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.sign-preview.plus { color: var(--green); }
+.sign-preview.minus { color: var(--red); }
+
 /* === Search / Autocomplete === */
 .search-wrapper { position: relative; }
 
